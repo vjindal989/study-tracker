@@ -1,69 +1,118 @@
-import Image from "next/image";
+export const dynamic = 'force-dynamic'
 
-export default function Home() {
+import { redirect } from 'next/navigation'
+import { createServerClient } from '@/lib/supabase-server'
+import AddTopicForm from '@/components/AddTopicForm'
+import TopicCard from '@/components/TopicCard'
+import JoinTopicForm from '@/components/JoinTopicForm'
+
+export default async function Dashboard() {
+  const supabase = await createServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) redirect('/onboarding')
+
+  // Topics this user is a member of
+  const { data: memberships } = await supabase
+    .from('topic_members')
+    .select('topic_id, next_steps')
+    .eq('user_id', user.id)
+
+  const topicIds = memberships?.map((m) => m.topic_id) ?? []
+  const nextStepsMap = Object.fromEntries(
+    (memberships ?? []).map((m) => [m.topic_id, m.next_steps])
+  )
+
+  const { data: topics } = topicIds.length
+    ? await supabase
+        .from('topics')
+        .select('*')
+        .in('id', topicIds)
+        .order('created_at', { ascending: false })
+    : { data: [] }
+
+  // All tasks for these topics
+  const { data: allTasks } = topicIds.length
+    ? await supabase.from('tasks').select('id, topic_id').in('topic_id', topicIds)
+    : { data: [] }
+
+  const allTaskIds = allTasks?.map((t) => t.id) ?? []
+  const tasksByTopic = (allTasks ?? []).reduce(
+    (acc, t) => { (acc[t.topic_id] ??= []).push(t.id); return acc },
+    {} as Record<string, string[]>
+  )
+
+  // My progress on all tasks
+  const { data: myProgress } = allTaskIds.length
+    ? await supabase
+        .from('task_progress')
+        .select('task_id, status')
+        .eq('user_id', user.id)
+        .in('task_id', allTaskIds)
+    : { data: [] }
+
+  const myProgressMap = Object.fromEntries((myProgress ?? []).map((p) => [p.task_id, p.status]))
+
+  // Member counts per topic
+  const { data: memberRows } = topicIds.length
+    ? await supabase.from('topic_members').select('topic_id').in('topic_id', topicIds)
+    : { data: [] }
+
+  const memberCountMap = (memberRows ?? []).reduce(
+    (acc, r) => { acc[r.topic_id] = (acc[r.topic_id] ?? 0) + 1; return acc },
+    {} as Record<string, number>
+  )
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="min-h-screen bg-gray-50">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">📚 Study Tracker</h1>
+            <p className="text-gray-500 mt-1">
+              {profile.avatar_emoji} <strong>{profile.name}</strong> — your topics
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <JoinTopicForm />
+            <AddTopicForm />
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+
+        {!topics?.length ? (
+          <div className="text-center py-24 text-gray-400">
+            <div className="text-6xl mb-4">🎯</div>
+            <p className="text-xl font-medium text-gray-500">No topics yet</p>
+            <p className="mt-1 text-sm">Create one or join a friend's topic with an invite code</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {topics.map((topic) => {
+              const taskIds = tasksByTopic[topic.id] ?? []
+              const myDone = taskIds.filter((id) => myProgressMap[id] === 'done').length
+              return (
+                <TopicCard
+                  key={topic.id}
+                  topic={topic}
+                  myDone={myDone}
+                  myTotal={taskIds.length}
+                  memberCount={memberCountMap[topic.id] ?? 1}
+                  nextSteps={nextStepsMap[topic.id] ?? null}
+                />
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </main>
+  )
 }
